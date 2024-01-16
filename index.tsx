@@ -9,16 +9,23 @@ const app = new Elysia()
   .get("/", ({ html }) =>
     html(
       <BaseHTML>
-        <body class="flex w-full h-screen justify-center items-center bg-slate-900 text-white text-2xl">
-          <button hx-post="/clicked" hx-swap="outerHTML">
-            Click Me
-          </button>
-        </body>
+        <body
+          class="flex w-full h-screen justify-center items-center bg-slate-900 text-white text-2xl"
+          hx-get="/todos"
+          hx-trigger="load"
+        ></body>
       </BaseHTML>
     )
   )
-  .post("/clicked", () => <div class="text-violet-400">Anjas</div>)
   .get("todos", () => <TodoList todos={todos} />)
+  .post("todos/toggle/:id", ({ params }) => {
+    const todo = todos.find((todo) => todo.id === parseInt(params.id));
+
+    if (todo) {
+      todo.completed = !todo.completed;
+      return <TodoItem {...todo} />;
+    }
+  })
   .listen(3000, ({ hostname, port }) =>
     console.log(`🦊 Elysia running on http://${hostname}:${port}`)
   );
@@ -56,22 +63,28 @@ const todos: Todo[] = [
   },
 ];
 
-function TodoItem({id, content, completed}: Todo) {
+function TodoItem({ id, content, completed }: Todo) {
   return (
     <div class="flex flex-row space-5-x">
       <p>{content}</p>
-      <input type="checkbox" checked={completed} />
+      <input
+        type="checkbox"
+        checked={completed}
+        hx-post={`/todos/toggle/${id}}`}
+        hx-target="closest div"
+        hx-swap="outerHTML"
+      />
       <button class="text-red-500">X</button>
     </div>
-  )
+  );
 }
 
-function TodoList({todos}: {todos: Todo[]}) {
+function TodoList({ todos }: { todos: Todo[] }) {
   return (
     <div>
       {todos.map((todo) => (
         <TodoItem {...todo} />
       ))}
     </div>
-  )
+  );
 }
