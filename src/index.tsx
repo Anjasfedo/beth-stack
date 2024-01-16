@@ -1,6 +1,9 @@
 import { html } from "@elysiajs/html";
 import { Elysia } from "elysia";
 import * as elements from "typed-html";
+import { todosDB } from "./database";
+import { Todo, todos } from "./database/schema";
+import { eq } from "drizzle-orm";
 
 const app = new Elysia()
     .use(html())
@@ -11,40 +14,51 @@ const app = new Elysia()
                     class="flex w-full h-screen justify-center items-center bg-slate-900 text-white text-2xl"
                     hx-get="/todos"
                     hx-trigger="load"
-                ></body>
+                >
+                    
+                </body>
             </BaseHTML>
         )
     )
-    .get("todos", () => <TodoList todos={todos} />)
-    .post("todos/toggle/:id", ({ params }) => {
-        const todo = todos.find((todo) => todo.id === parseInt(params.id));
+    .get("todos", async () => {
+        const data = await todosDB.select().from(todos).all();
 
-        if (todo) {
-            todo.completed = !todo.completed;
-            return <TodoItem {...todo} />;
-        }
+        return <TodoList todos={data} />;
     })
-    .delete("/todos/:id", ({ params }) => {
-        const todoIndex = todos.findIndex((todo) => todo.id === parseInt(params.id));
+    .post("todos/toggle/:id", async ({ params }) => {
+        const oldTodo = await todosDB.select().from(todos).where(eq(todos.id, params.id)).get();
 
-        if (todoIndex !== -1) {
-            todos.splice(todoIndex, 1);
-        }
+        const newTodo = await todosDB
+            .update(todos)
+            .set({ completed: !oldTodo?.completed })
+            .where(eq(todos.id, params.id))
+            .returning()
+            .get();
+        return <TodoItem {...newTodo} />;
     })
-    .post("/todos", ({ body }) => {
-        if (body.content.length === 0) {
+    .delete("/todos/:id", async ({ params }) => {
+        await todosDB.delete(todos).where(eq(todos.id, params.id)).run();
+    })
+    .post("/todos", async ({ body }) => {
+        if (!body || !body.content) {
             throw new Error("Input Empty");
         }
 
-        const newTodo = {
-            id: lastID++,
+        const newTodoData = {
             content: body.content,
-            completed: false,
         };
 
-        todos.push(newTodo);
+        try {
+            // Insert the new todo into the database
+            const newTodo = await todosDB.insert(todos).values(newTodoData).returning().get();
 
-        return <TodoItem {...newTodo} />;
+            // Return the created todo as a response
+            return <TodoItem {...newTodo} />;
+        } catch (error) {
+            console.error("Error creating todo:", error);
+            // Handle the error and send an appropriate response
+            throw new Error("Failed to create todo");
+        }
     })
     .listen(3000, ({ hostname, port }) => console.log(`🦊 Elysia running on http://${hostname}:${port}`));
 
@@ -62,27 +76,6 @@ ${children}
 </html>
 `;
 
-type Todo = {
-    id: number;
-    content: string;
-    completed: boolean;
-};
-
-const todos: Todo[] = [
-    {
-        id: 1,
-        content: "learn beth",
-        completed: true,
-    },
-    {
-        id: 2,
-        content: "learn golang",
-        completed: false,
-    },
-];
-
-let lastID = Math.max(...todos.map((todo) => todo.id), 0) + 1;
-
 function TodoItem({ id, content, completed }: Todo) {
     return (
         <div class="flex flex-row space-x-3">
@@ -90,7 +83,7 @@ function TodoItem({ id, content, completed }: Todo) {
             <input
                 type="checkbox"
                 checked={completed}
-                hx-post={`/todos/toggle/${id}}`}
+                hx-post={`/todos/toggle/${id}`}
                 hx-target="closest div"
                 hx-swap="outerHTML"
             />
